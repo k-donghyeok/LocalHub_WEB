@@ -18,10 +18,18 @@ async function generateRoute() {
   errorMessage.value = ''
   try {
     const data = await createRandomRoute()
+    console.info('[RandomRouteView] Random route API response received.', {
+      totalDistance: data?.totalDistance,
+      totalTime: data?.totalTime,
+      placesCount: data?.places?.length || 0,
+      routeFeatureCount: data?.routeGeoJson?.features?.length || 0,
+      routeData: data
+    })
     if (!data?.routeGeoJson?.features?.length) throw new Error('생성된 경로 정보가 없습니다. 다시 시도해 주세요.')
     if (!data?.places?.length) throw new Error('추천 장소가 없습니다. 다시 시도해 주세요.')
     routeData.value = data
   } catch (error) {
+    console.error('[RandomRouteView] Random route generation failed.', error)
     errorMessage.value = error instanceof Error ? error.message : '여행코스를 생성하지 못했습니다.'
     routeData.value = null
   } finally {
