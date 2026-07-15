@@ -299,7 +299,11 @@ function handlePlaceImageError(event, fallbackImage) {
   if (image.dataset.fallbackApplied === 'true') return
 
   image.dataset.fallbackApplied = 'true'
-  if (fallbackImage) image.src = fallbackImage
+  if (!fallbackImage) {
+    image.style.display = 'none'
+    return
+  }
+  image.src = fallbackImage
 }
 </script>
 

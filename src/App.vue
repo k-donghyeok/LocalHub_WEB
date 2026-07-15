@@ -62,6 +62,26 @@ function toPlace(item, category) {
   }
 }
 
+function normalizeImageUrl(url) {
+  if (!url) return ''
+  if (url.startsWith('http://tong.visitkorea.or.kr/')) {
+    return `https://${url.slice('http://'.length)}`
+  }
+  return url
+}
+
+function handlePlaceImageError(event, fallbackImage) {
+  const image = event.currentTarget
+  if (image.dataset.fallbackApplied === 'true') return
+
+  image.dataset.fallbackApplied = 'true'
+  if (!fallbackImage) {
+    image.style.display = 'none'
+    return
+  }
+  image.src = fallbackImage
+}
+
 async function loadInitialCategory(category) {
   if (category.loadingInitial || category.loadedPages.includes(1)) return
 
@@ -107,22 +127,6 @@ async function loadNextCategoryPage(category) {
     category.loadingMore = false
     await nextTick()
   }
-}
-
-function normalizeImageUrl(url) {
-  if (!url) return ''
-  if (url.startsWith('http://tong.visitkorea.or.kr/')) {
-    return `https://${url.slice('http://'.length)}`
-  }
-  return url
-}
-
-function handlePlaceImageError(event, fallbackImage) {
-  const image = event.currentTarget
-  if (image.dataset.fallbackApplied === 'true') return
-
-  image.dataset.fallbackApplied = 'true'
-  if (fallbackImage) image.src = fallbackImage
 }
 
 function setCategoryTrack(slug, element) {
@@ -250,10 +254,10 @@ async function sendChat() {
   try {
     const answer = await sendChatMessage(value)
     chatMessages.value[loadingIndex] = { from: 'bot', text: answer }
-  } catch {
+  } catch (error) {
     chatMessages.value[loadingIndex] = {
       from: 'bot',
-      text: '챗봇 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+      text: error instanceof Error ? error.message : '챗봇 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.'
     }
   } finally {
     chatLoading.value = false
@@ -452,7 +456,7 @@ async function sendChat() {
   <transition name="chat">
     <section v-if="chatOpen" class="chat">
       <header>
-        <div><strong>LocalHub 챗봇</strong><small>부산 정보를 물어보세요</small></div>
+        <div><strong>BURIBURI 챗봇</strong><small>부산 정보를 물어보세요</small></div>
         <button @click="chatOpen = false">×</button>
       </header>
       <div class="messages">
