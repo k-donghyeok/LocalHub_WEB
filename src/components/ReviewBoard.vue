@@ -316,7 +316,7 @@ function handleBrokenImage(event) {
         <span>STEP 01</span>
         <div>
           <h2>리뷰를 확인할 장소를 선택하세요</h2>
-          <p>부산 공공데이터 기반 7개 카테고리 장소입니다.</p>
+          <p>부산 공공데이터 기반 {{ categories.length }}개 카테고리 장소입니다.</p>
         </div>
       </div>
 
@@ -363,7 +363,7 @@ function handleBrokenImage(event) {
             <span>{{ selectedPlace.category }} · {{ selectedPlace.area }}</span>
             <h2>{{ selectedPlace.title }}</h2>
             <p>{{ selectedPlace.text }}</p>
-            <div><strong>★ {{ selectedPlace.rating.toFixed(1) }}</strong><small>공공데이터 장소 정보</small></div>
+            <div v-if="selectedPlace.rating > 0"><strong>★ {{ selectedPlace.rating.toFixed(1) }}</strong><small>공공데이터 장소 정보</small></div>
           </div>
         </div>
 

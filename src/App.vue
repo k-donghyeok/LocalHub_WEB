@@ -1,7 +1,8 @@
 <script setup>
-import { computed, nextTick, ref } from 'vue'
-import { categories, courses, heroImage } from './data'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { categoryDefinitions, courses, heroImage } from './data'
 import { sendChatMessage } from './api/chat'
+import { getPlacesByCategory } from './api/places'
 import FestivalCalendar from './components/FestivalCalendar.vue'
 import ReviewBoard from './components/ReviewBoard.vue'
 import buriburiLogo from './assets/buriburi-logo.png'
@@ -12,13 +13,21 @@ const reviewBoard = ref(null)
 const chatOpen = ref(false)
 const chatText = ref('')
 const chatLoading = ref(false)
+const categories = ref(categoryDefinitions.map((category) => ({
+  ...category,
+  items: [],
+  page: 1,
+  totalPages: 0,
+  loading: false,
+  error: ''
+})))
 const chatMessages = ref([
   { from: 'bot', text: '안녕하세요! 부산 장소, 축제, 여행코스를 물어보세요.' }
 ])
 
-const homeCategories = computed(() => categories)
-const festivalCategory = computed(() => categories.find((category) => category.slug === 'festival'))
-const searchablePlaces = computed(() => categories.flatMap((category) =>
+const homeCategories = computed(() => categories.value)
+const festivalCategory = computed(() => categories.value.find((category) => category.slug === 'festival'))
+const searchablePlaces = computed(() => categories.value.flatMap((category) =>
   category.items.map((place) => ({ ...place, category: category.label, slug: category.slug }))
 ))
 const homeSearchResults = computed(() => {
@@ -29,14 +38,46 @@ const homeSearchResults = computed(() => {
   )
 })
 
-function scrollSection(slug, direction) {
-  const track = document.querySelector(`#track-${slug}`)
-  const card = track?.querySelector('.card')
-  if (!track || !card) return
-
-  const gap = Number.parseFloat(getComputedStyle(track).gap) || 0
-  track.scrollBy({ left: direction * (card.getBoundingClientRect().width + gap), behavior: 'smooth' })
+function toPlace(item, category) {
+  return {
+    title: item.title,
+    contentId: String(item.content_id),
+    area: item.address,
+    image: category.image,
+    rating: 0,
+    reviews: 0,
+    text: item.address,
+    category: item.category || category.label,
+    slug: category.slug
+  }
 }
+
+async function loadCategory(category, page = 1) {
+  if (category.loading) return
+
+  category.loading = true
+  category.error = ''
+  try {
+    const result = await getPlacesByCategory(category.contentTypeId, page)
+    category.items = result.items.map((item) => toPlace(item, category))
+    category.page = result.page
+    category.totalPages = result.total_pages
+  } catch (error) {
+    category.error = error instanceof Error ? error.message : '장소 목록을 불러오지 못했습니다.'
+  } finally {
+    category.loading = false
+  }
+}
+
+function changeCategoryPage(category, direction) {
+  const nextPage = category.page + direction
+  if (nextPage < 1 || nextPage > category.totalPages) return
+  loadCategory(category, nextPage)
+}
+
+onMounted(() => {
+  categories.value.forEach((category) => loadCategory(category))
+})
 
 function changeView(view) {
   currentView.value = view
@@ -126,7 +167,7 @@ async function sendChat() {
         <article v-for="place in homeSearchResults" :key="`${place.slug}-${place.title}`" class="card clickable-card" tabindex="0" role="button" @click="openPlaceReviews(place)" @keydown.enter="openPlaceReviews(place)">
           <div class="card-image"><img :src="place.image" :alt="place.title" /><span>{{ place.category }}</span></div>
           <p class="area">{{ place.area }}</p><h3>{{ place.title }}</h3><p class="card-text">{{ place.text }}</p>
-          <div class="rating"><strong>{{ place.rating.toFixed(1) }}</strong><span>리뷰 {{ place.reviews }}개</span></div>
+          <div v-if="place.rating > 0" class="rating"><strong>{{ place.rating.toFixed(1) }}</strong><span>리뷰 {{ place.reviews }}개</span></div>
         </article>
       </div>
       <div v-else class="empty">입력한 조건에 맞는 장소가 없습니다.</div>
@@ -172,12 +213,15 @@ async function sendChat() {
           <h2>{{ category.subtitle }}</h2>
         </div>
         <div class="section-buttons">
-          <button type="button" :aria-label="`${category.label} 이전 장소`" @click="scrollSection(category.slug, -1)">←</button>
-          <button type="button" :aria-label="`${category.label} 다음 장소`" @click="scrollSection(category.slug, 1)">→</button>
+          <button type="button" :disabled="category.loading || category.page <= 1" :aria-label="`${category.label} 이전 페이지`" @click="changeCategoryPage(category, -1)">‹</button>
+          <button type="button" :disabled="category.loading || !category.totalPages || category.page >= category.totalPages" :aria-label="`${category.label} 다음 페이지`" @click="changeCategoryPage(category, 1)">›</button>
         </div>
       </div>
 
-      <div :id="`track-${category.slug}`" class="card-track">
+      <div v-if="category.loading" class="category-state">장소 목록을 불러오는 중입니다.</div>
+      <div v-else-if="category.error" class="category-state">{{ category.error }}</div>
+      <div v-else-if="!category.items.length" class="category-state">표시할 장소가 없습니다.</div>
+      <div v-else :id="`track-${category.slug}`" class="card-track">
         <article
           v-for="place in category.items"
           :key="place.title"
@@ -196,7 +240,7 @@ async function sendChat() {
           <h3>{{ place.title }}</h3>
           <p class="card-text">{{ place.text }}</p>
           <p v-if="place.period" class="period">{{ place.period }}</p>
-          <div class="rating">
+          <div v-if="place.rating > 0" class="rating">
             <strong>{{ place.rating.toFixed(1) }}</strong>
             <i v-for="n in 5" :key="n"></i>
             <span>({{ place.reviews }})</span>

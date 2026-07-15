@@ -92,6 +92,8 @@ nav button:hover, nav button.active { border-bottom-color: var(--blue); opacity:
 .section-title h2 { margin: 0; font-size: clamp(24px,3vw,32px); letter-spacing: -.045em; }
 .section-buttons { display: flex; gap: 8px; }
 .section-buttons button { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: white; cursor: pointer; }
+.section-buttons button:disabled { opacity: .45; cursor: not-allowed; }
+.category-state { min-height: 180px; display: grid; place-items: center; border: 1px dashed var(--line); border-radius: 18px; color: var(--muted); }
 .card-track { display: flex; gap: 16px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; padding-bottom: 8px; }
 .card-track::-webkit-scrollbar { display: none; }
 .card { flex: 0 0 min(330px, calc(100vw - 56px)); width: min(330px, calc(100vw - 56px)); scroll-snap-align: start; }

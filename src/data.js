@@ -15,6 +15,15 @@ const generic = {
   shopping: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1600&q=80'
 }
 
+export const categoryDefinitions = [
+  { slug: 'attraction', label: '관광지', icon: '🧭', subtitle: '부산을 처음 방문한다면 놓치기 아쉬운 대표 명소', contentTypeId: 12, image: haeundae },
+  { slug: 'culture', label: '문화시설', icon: '🖼️', subtitle: '전시와 건축, 지역의 이야기를 만나는 문화 공간', contentTypeId: 14, image: generic.culture },
+  { slug: 'festival', label: '축제·공연·행사', icon: '🎉', subtitle: '날짜를 확인하고 즐기는 부산의 축제와 공연', contentTypeId: 15, image: generic.festival },
+  { slug: 'leisure', label: '레포츠', icon: '🏄', subtitle: '바다와 도시를 더 활동적으로 즐기는 방법', contentTypeId: 28, image: generic.leisure },
+  { slug: 'stay', label: '숙박', icon: '🛏️', subtitle: '여행의 하루를 편안하게 마무리할 부산의 숙소', contentTypeId: 32, image: generic.stay },
+  { slug: 'shopping', label: '쇼핑', icon: '🛍️', subtitle: '시장부터 복합 쇼핑몰까지 부산에서 만나는 쇼핑', contentTypeId: 38, image: generic.shopping }
+]
+
 export const categories = [
   {
     slug: 'attraction',
