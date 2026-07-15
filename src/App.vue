@@ -43,7 +43,7 @@ function toPlace(item, category) {
     title: item.title,
     contentId: String(item.content_id),
     area: item.address,
-    image: category.image,
+    image: item.first_image || category.image,
     rating: 0,
     reviews: 0,
     text: item.address,
