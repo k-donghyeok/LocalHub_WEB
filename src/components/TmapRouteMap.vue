@@ -21,9 +21,23 @@ function loadTmapSdk() {
 }
 
 function clearOverlays() {
-  overlays.forEach((overlay) => overlay.setMap?.(null))
+  // Tmap can throw internally while detaching an already-disposed layer
+  // ("mapInfoLayer" is undefined). One stale layer must not prevent the
+  // newly received route from rendering.
+  overlays.forEach((overlay) => {
+    try {
+      overlay.setMap?.(null)
+    } catch (error) {
+      console.warn('[TmapRouteMap] Failed to detach a stale overlay.', error)
+    }
+  })
   overlays = []
-  infoWindow?.setMap?.(null)
+  try {
+    infoWindow?.setMap?.(null)
+  } catch (error) {
+    console.warn('[TmapRouteMap] Failed to detach the previous info window.', error)
+  }
+  infoWindow = null
 }
 
 function markerColor(pointType) {
@@ -32,12 +46,39 @@ function markerColor(pointType) {
   return '#168ac7'
 }
 
+function markerIcon(order, pointType) {
+  const color = markerColor(pointType)
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="46" viewBox="0 0 36 46"><path fill="${color}" stroke="#fff" stroke-width="2" d="M18 1C9.2 1 2 8.1 2 16.9 2 29 18 44 18 44s16-15 16-27.1C34 8.1 26.8 1 18 1Z"/><text x="18" y="22" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="15" font-weight="700">${order}</text></svg>`
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+}
+
 function pointTypeOf(feature, index, total) {
   const type = String(feature.properties?.pointType || feature.properties?.type || '').toUpperCase()
   if (['S', 'B', 'E'].includes(type)) return type
   if (index === 0) return 'S'
   if (index === total - 1) return 'E'
   return 'B'
+}
+
+function toCoordinate(value) {
+  if (!Array.isArray(value) || value.length < 2) return null
+  const [longitude, latitude] = value.map(Number)
+  return Number.isFinite(longitude) && Number.isFinite(latitude) ? [longitude, latitude] : null
+}
+
+function placeCoordinate(place) {
+  const longitude = Number(place.longitude ?? place.lon ?? place.lng ?? place.mapx ?? place.mapX ?? place.x)
+  const latitude = Number(place.latitude ?? place.lat ?? place.mapy ?? place.mapY ?? place.y)
+  return Number.isFinite(longitude) && Number.isFinite(latitude) ? [longitude, latitude] : null
+}
+
+function routeLineCoordinates(features) {
+  return features.flatMap((feature) => {
+    const { type, coordinates } = feature.geometry || {}
+    if (type === 'LineString') return [coordinates]
+    if (type === 'MultiLineString') return coordinates
+    return []
+  }).map((line) => line.map(toCoordinate).filter(Boolean)).filter((line) => line.length >= 2)
 }
 
 function addMarkerClickListener(Tmapv2, marker, handler) {
@@ -54,8 +95,20 @@ function renderRoute(Tmapv2, routeData) {
     throw new Error('경로 데이터(routeGeoJson)가 없습니다.')
   }
 
-  const pointFeatures = features.filter((feature) => feature.geometry?.type === 'Point')
+  let pointFeatures = features.filter((feature) => feature.geometry?.type === 'Point')
   const lineFeatures = features.filter((feature) => feature.geometry?.type === 'LineString')
+  // The API can return route lines as GeoJSON while stop coordinates live in places.
+  // Normalize those places into Point features so markers are still drawn.
+  if (!pointFeatures.length) {
+    const places = [...(routeData?.places || [])].sort((a, b) => (a.order || 0) - (b.order || 0))
+    pointFeatures = places.map((place) => {
+      const coordinate = placeCoordinate(place)
+      return coordinate ? {
+        geometry: { type: 'Point', coordinates: coordinate },
+        properties: { pointType: place.pointType, name: place.name || place.title }
+      } : null
+    }).filter(Boolean)
+  }
   if (!pointFeatures.length) {
     throw new Error('지도에 표시할 경유지가 없습니다.')
   }
@@ -82,9 +135,8 @@ function renderRoute(Tmapv2, routeData) {
     const marker = new Tmapv2.Marker({
       position,
       map,
-      label: `${pointType} ${index + 1}`,
-      icon: `https://tmapapi.sktelecom.com/upload/tmap/marker/pin-r-m-${pointType === 'S' ? 'g' : pointType === 'E' ? 'r' : 'b'}.png`,
-      iconSize: new Tmapv2.Size(24, 38)
+      icon: markerIcon(index + 1, pointType),
+      iconSize: new Tmapv2.Size(36, 46)
     })
 
     addMarkerClickListener(Tmapv2, marker, () => {
