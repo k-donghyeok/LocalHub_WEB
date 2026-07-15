@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { categoryDefinitions, courses, heroImage } from './data'
 import { sendChatMessage } from './api/chat'
 import { getPlacesByCategory } from './api/places'
@@ -13,13 +13,19 @@ const reviewBoard = ref(null)
 const chatOpen = ref(false)
 const chatText = ref('')
 const chatLoading = ref(false)
+const categoryTracks = new Map()
 const categories = ref(categoryDefinitions.map((category) => ({
   ...category,
   items: [],
-  page: 1,
+  nextPage: 1,
   totalPages: 0,
-  loading: false,
-  error: ''
+  loadingInitial: false,
+  loadingMore: false,
+  error: '',
+  moreError: '',
+  loadedPages: [],
+  hasPreviousCard: false,
+  hasNextCard: false
 })))
 const chatMessages = ref([
   { from: 'bot', text: '안녕하세요! 부산 장소, 축제, 여행코스를 물어보세요.' }
@@ -43,7 +49,8 @@ function toPlace(item, category) {
     title: item.title,
     contentId: String(item.content_id),
     area: item.address,
-    image: item.first_image || category.image,
+    image: normalizeImageUrl(item.first_image) || category.image,
+    fallbackImage: category.image,
     rating: 0,
     reviews: 0,
     text: item.address,
@@ -52,31 +59,122 @@ function toPlace(item, category) {
   }
 }
 
-async function loadCategory(category, page = 1) {
-  if (category.loading) return
+async function loadInitialCategory(category) {
+  if (category.loadingInitial || category.loadedPages.includes(1)) return
 
-  category.loading = true
+  category.loadingInitial = true
   category.error = ''
   try {
-    const result = await getPlacesByCategory(category.contentTypeId, page)
+    const result = await getPlacesByCategory(category.contentTypeId, 1)
     category.items = result.items.map((item) => toPlace(item, category))
-    category.page = result.page
+    category.loadedPages = [result.page]
     category.totalPages = result.total_pages
+    category.nextPage = result.page < result.total_pages ? result.page + 1 : null
   } catch (error) {
     category.error = error instanceof Error ? error.message : '장소 목록을 불러오지 못했습니다.'
   } finally {
-    category.loading = false
+    category.loadingInitial = false
+    await nextTick()
+    updateCarouselState(category)
   }
 }
 
-function changeCategoryPage(category, direction) {
-  const nextPage = category.page + direction
-  if (nextPage < 1 || nextPage > category.totalPages) return
-  loadCategory(category, nextPage)
+function mergeCategoryItems(category, items) {
+  const existingContentIds = new Set(category.items.map((item) => item.contentId))
+  category.items.push(...items.filter((item) => !existingContentIds.has(item.contentId)))
+}
+
+async function loadNextCategoryPage(category) {
+  const page = category.nextPage
+  if (!page || category.loadingMore || category.loadedPages.includes(page)) return false
+
+  category.loadingMore = true
+  category.moreError = ''
+  try {
+    const result = await getPlacesByCategory(category.contentTypeId, page)
+    mergeCategoryItems(category, result.items.map((item) => toPlace(item, category)))
+    category.loadedPages.push(result.page)
+    category.totalPages = result.total_pages
+    category.nextPage = result.page < result.total_pages ? result.page + 1 : null
+    return true
+  } catch (error) {
+    category.moreError = error instanceof Error ? error.message : '다음 장소를 불러오지 못했습니다.'
+    return false
+  } finally {
+    category.loadingMore = false
+    await nextTick()
+    updateCarouselState(category)
+  }
+}
+
+function normalizeImageUrl(url) {
+  if (!url) return ''
+  if (url.startsWith('http://tong.visitkorea.or.kr/')) {
+    return `https://${url.slice('http://'.length)}`
+  }
+  return url
+}
+
+function handlePlaceImageError(event, fallbackImage) {
+  const image = event.currentTarget
+  if (image.dataset.fallbackApplied === 'true') return
+
+  image.dataset.fallbackApplied = 'true'
+  if (fallbackImage) image.src = fallbackImage
+}
+
+function setCategoryTrack(slug, element) {
+  if (element) categoryTracks.set(slug, element)
+  else categoryTracks.delete(slug)
+}
+
+function updateCarouselState(category) {
+  const track = categoryTracks.get(category.slug)
+  if (!track) return
+
+  const remainingScroll = track.scrollWidth - track.clientWidth - track.scrollLeft
+  category.hasPreviousCard = track.scrollLeft > 1
+  category.hasNextCard = remainingScroll > 1 || Boolean(category.nextPage)
+}
+
+function scrollCategory(category, direction) {
+  const track = categoryTracks.get(category.slug)
+  if (!track) return
+
+  const card = track.querySelector('.card')
+  const gap = Number.parseFloat(getComputedStyle(track).gap) || 0
+  const distance = (card?.getBoundingClientRect().width || track.clientWidth) + gap
+
+  if (direction > 0 && track.scrollWidth - track.clientWidth - track.scrollLeft <= distance * 1.5) {
+    loadNextCategoryPage(category)
+  }
+
+  track.scrollBy({ left: direction * distance, behavior: 'smooth' })
+  window.setTimeout(() => updateCarouselState(category), 350)
+}
+
+function handleCategoryScroll(category) {
+  updateCarouselState(category)
+  const track = categoryTracks.get(category.slug)
+  if (!track || category.loadingMore || !category.nextPage) return
+
+  const remainingScroll = track.scrollWidth - track.clientWidth - track.scrollLeft
+  const card = track.querySelector('.card')
+  const threshold = (card?.getBoundingClientRect().width || track.clientWidth) * 1.5
+  if (remainingScroll <= threshold) loadNextCategoryPage(category)
+}
+
+function updateAllCarouselStates() {
+  categories.value.forEach(updateCarouselState)
 }
 
 onMounted(() => {
-  categories.value.forEach((category) => loadCategory(category))
+  categories.value.forEach(loadInitialCategory)
+  window.addEventListener('resize', updateAllCarouselStates)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateAllCarouselStates)
 })
 
 function changeView(view) {
@@ -164,8 +262,8 @@ async function sendChat() {
     <section v-if="homeQuery.trim()" class="container result-section">
       <div class="section-title"><div><p>SEARCH RESULT</p><h2>‘{{ homeQuery }}’ 검색 결과 {{ homeSearchResults.length }}곳</h2></div></div>
       <div v-if="homeSearchResults.length" class="result-grid">
-        <article v-for="place in homeSearchResults" :key="`${place.slug}-${place.title}`" class="card clickable-card" tabindex="0" role="button" @click="openPlaceReviews(place)" @keydown.enter="openPlaceReviews(place)">
-          <div class="card-image"><img :src="place.image" :alt="place.title" /><span>{{ place.category }}</span></div>
+        <article v-for="place in homeSearchResults" :key="`${place.slug}-${place.contentId}`" class="card clickable-card" tabindex="0" role="button" @click="openPlaceReviews(place)" @keydown.enter="openPlaceReviews(place)">
+          <div class="card-image"><img :src="place.image" :alt="place.title" @error="handlePlaceImageError($event, place.fallbackImage)" /><span>{{ place.category }}</span></div>
           <p class="area">{{ place.area }}</p><h3>{{ place.title }}</h3><p class="card-text">{{ place.text }}</p>
           <div v-if="place.rating > 0" class="rating"><strong>{{ place.rating.toFixed(1) }}</strong><span>리뷰 {{ place.reviews }}개</span></div>
         </article>
@@ -213,18 +311,18 @@ async function sendChat() {
           <h2>{{ category.subtitle }}</h2>
         </div>
         <div class="section-buttons">
-          <button type="button" :disabled="category.loading || category.page <= 1" :aria-label="`${category.label} 이전 페이지`" @click="changeCategoryPage(category, -1)">‹</button>
-          <button type="button" :disabled="category.loading || !category.totalPages || category.page >= category.totalPages" :aria-label="`${category.label} 다음 페이지`" @click="changeCategoryPage(category, 1)">›</button>
+          <button type="button" :disabled="!category.hasPreviousCard" :aria-label="`${category.label} 이전 장소`" @click="scrollCategory(category, -1)">‹</button>
+          <button type="button" :disabled="!category.hasNextCard || category.loadingMore" :aria-label="`${category.label} 다음 장소`" :aria-busy="category.loadingMore" @click="scrollCategory(category, 1)">›</button>
         </div>
       </div>
 
-      <div v-if="category.loading" class="category-state">장소 목록을 불러오는 중입니다.</div>
-      <div v-else-if="category.error" class="category-state">{{ category.error }}</div>
+      <div v-if="category.loadingInitial && !category.items.length" class="category-state">장소 목록을 불러오는 중입니다.</div>
+      <div v-else-if="category.error && !category.items.length" class="category-state"><span>{{ category.error }}</span><button type="button" @click="loadInitialCategory(category)">다시 시도</button></div>
       <div v-else-if="!category.items.length" class="category-state">표시할 장소가 없습니다.</div>
-      <div v-else :id="`track-${category.slug}`" class="card-track">
+      <div v-else :id="`track-${category.slug}`" class="card-track" :ref="(element) => setCategoryTrack(category.slug, element)" @scroll.passive="handleCategoryScroll(category)">
         <article
           v-for="place in category.items"
-          :key="place.title"
+          :key="`${category.slug}-${place.contentId}`"
           class="card clickable-card"
           tabindex="0"
           role="button"
@@ -232,7 +330,7 @@ async function sendChat() {
           @keydown.enter="openPlaceReviews({ ...place, category: category.label, slug: category.slug })"
         >
           <div class="card-image">
-            <img :src="place.image" :alt="place.title" loading="lazy" />
+            <img :src="place.image" :alt="place.title" loading="lazy" @error="handlePlaceImageError($event, place.fallbackImage)" />
             <button class="heart" type="button" aria-label="저장" @click.stop>♡</button>
             <span>{{ category.label }}</span>
           </div>
@@ -247,6 +345,8 @@ async function sendChat() {
           </div>
         </article>
       </div>
+      <div v-if="category.loadingMore" class="category-more-status" aria-live="polite">다음 장소를 불러오는 중입니다.</div>
+      <div v-else-if="category.moreError" class="category-more-status category-more-error" aria-live="polite"><span>{{ category.moreError }}</span><button type="button" @click="loadNextCategoryPage(category)">다시 시도</button></div>
     </section>
     </template>
 
